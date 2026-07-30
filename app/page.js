@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
-    <div>
+    <div className="pt-16">
      <Button variant={"destructive"}>Splitr App</Button>
     </div>
   );
