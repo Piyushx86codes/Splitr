@@ -1,5 +1,7 @@
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
-import { cva } from "class-variance-authority";
+import { Slot } from "@radix-ui/react-slot"
+import { cva } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
@@ -44,14 +46,18 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  asChild = false, // 👈 1. Extract asChild here
   ...props
 }) {
+  const Comp = asChild ? Slot : ButtonPrimitive // 👈 2. Switch component dynamically
+
   return (
-    <ButtonPrimitive
+    <Comp
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
-      {...props} />
-  );
+      {...props}
+    />
+  )
 }
 
 export { Button, buttonVariants }
