@@ -1,4 +1,5 @@
 import { mutation, query } from "./_generated/server";
+import { v } from "convex/values"; // Fixed: Added v import
 
 /**
  * Plain JS helper function for internal backend queries/mutations.
@@ -76,5 +77,46 @@ export const store = mutation({
   },
 });
 
+// Search users
+export const searchUsers = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    // Fixed: Replaced invalid ctx.runQuery with local helper function
+    const currentUser = await getUserHelper(ctx);
 
-//search users//
+    // Don't search if query is empty
+    if (args.query.length === 0) {
+      return [];
+    }
+
+    // Search by name using search index
+    const nameResults = await ctx.db
+      .query("users")
+      .withSearchIndex("search_name", (q) => q.search("name", args.query))
+      .collect();
+
+    // Search by emails using search index
+    const emailResults = await ctx.db
+      .query("users")
+      .withSearchIndex("search_email", (q) => q.search("email", args.query))
+      .collect();
+
+    // Combine results removing duplicates
+    const users = [
+      ...nameResults,
+      ...emailResults.filter(
+        (email) => !nameResults.some((name) => name._id === email._id)
+      ),
+    ];
+
+    // Exclude current user from results (if authenticated)
+    return users
+      .filter((user) => currentUser ? user._id !== currentUser._id : true)
+      .map((user) => ({
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        imageUrl: user.imageUrl,
+      }));
+  },
+});
