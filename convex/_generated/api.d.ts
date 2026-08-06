@@ -9,6 +9,7 @@
  */
 
 import type * as contacts from "../contacts.js";
+import type * as dashbord from "../dashbord.js";
 import type * as seed from "../seed.js";
 import type * as users from "../users.js";
 
@@ -20,6 +21,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
+  dashbord: typeof dashbord;
   seed: typeof seed;
   users: typeof users;
 }>;

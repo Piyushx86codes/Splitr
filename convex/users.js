@@ -1,9 +1,9 @@
-import { mutation, query } from "./_generated/server";
-import { v } from "convex/values"; // Fixed: Added v import
+// convex/users.js
+import { mutation, query, internalQuery } from "./_generated/server"; // Added internalQuery
+import { v } from "convex/values";
 
 /**
- * Plain JS helper function for internal backend queries/mutations.
- * Returns the user document or `null` if unauthenticated/not found.
+ * Helper function for internal backend usage
  */
 export async function getUserHelper(ctx) {
   const identity = await ctx.auth.getUserIdentity();
@@ -18,14 +18,17 @@ export async function getUserHelper(ctx) {
     )
     .first();
 
-  if (!user) {
-    return null;
-  }
-
-  return user;
+  return user ?? null;
 }
 
-// Convex Query for frontend
+// 1. Internal query used by dashbord.js (ctx.runQuery(internal.users.getCurrentUsers))
+export const getCurrentUsers = internalQuery({
+  handler: async (ctx) => {
+    return await getUserHelper(ctx);
+  },
+});
+
+// 2. Public query used by the frontend
 export const getCurrentUser = query({
   handler: async (ctx) => {
     const user = await getUserHelper(ctx);
@@ -81,27 +84,22 @@ export const store = mutation({
 export const searchUsers = query({
   args: { query: v.string() },
   handler: async (ctx, args) => {
-    // Fixed: Replaced invalid ctx.runQuery with local helper function
     const currentUser = await getUserHelper(ctx);
 
-    // Don't search if query is empty
     if (args.query.length === 0) {
       return [];
     }
 
-    // Search by name using search index
     const nameResults = await ctx.db
       .query("users")
       .withSearchIndex("search_name", (q) => q.search("name", args.query))
       .collect();
 
-    // Search by emails using search index
     const emailResults = await ctx.db
       .query("users")
       .withSearchIndex("search_email", (q) => q.search("email", args.query))
       .collect();
 
-    // Combine results removing duplicates
     const users = [
       ...nameResults,
       ...emailResults.filter(
@@ -109,9 +107,8 @@ export const searchUsers = query({
       ),
     ];
 
-    // Exclude current user from results (if authenticated)
     return users
-      .filter((user) => currentUser ? user._id !== currentUser._id : true)
+      .filter((user) => (currentUser ? user._id !== currentUser._id : true))
       .map((user) => ({
         id: user._id,
         name: user.name,
