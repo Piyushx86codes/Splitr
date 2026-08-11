@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 
-export const getExpensesBetweenusers = query({
+export const getExpensesBetweenUsers = query({
        args:{userId:v.id("users")},
        handler: async(ctx , {userId}) =>{
           const me = await ctx.runQuery(internal.users.getCurrentUser);
@@ -13,14 +13,14 @@ export const getExpensesBetweenusers = query({
             const myPaid = await ctx.db
                   .query("expenses")
                   .withIndex("by_user_and_group",(q)=>
-                  q.eq("paidByUserId", me._id).eq("groupid", undefined)
+                  q.eq("paidByUserId", me._id).eq("groupId", undefined)
             )
             .collect();
 
             const theirPaid = await ctx.db
                   .query("expenses")
                   .withIndex("by_user_and_group",(q)=>
-                  q.eq("paidByUserId", userId).eq("groupid", undefined)
+                  q.eq("paidByUserId", userId).eq("groupId", undefined)
             )
             .collect();
 
