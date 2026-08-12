@@ -6,10 +6,14 @@ export const getGroupExpenses = query({
   args: { groupId: v.id("groups") },
   handler: async (ctx, { groupId }) => {
     const currentUser = await ctx.runQuery(internal.users.getCurrentUser);
+    if (!currentUser) throw new Error("Unauthenticated");
+
     const group = await ctx.db.get(groupId);
-    if (!group) throw new Error("group Not Found");
-    if (!group.members.some((m) => m.userId === currentUser._id))
-      throw new Error("You are not a member of this group ");
+    if (!group) throw new Error("Group Not Found");
+
+    if (!group.members.some((m) => m.userId === currentUser._id)) {
+      throw new Error("You are not a member of this group");
+    }
 
     const expenses = await ctx.db
       .query("expenses")
@@ -21,86 +25,96 @@ export const getGroupExpenses = query({
       .withIndex("by_group", (q) => q.eq("groupId", groupId))
       .collect();
 
-    //building a memeber map//
-    const memberDetails = await Primise.all(
+    // Fetch member details safely
+    const memberDetailsRaw = await Promise.all(
       group.members.map(async (m) => {
         const u = await ctx.db.get(m.userId);
+        if (!u) return null;
         return {
           id: u._id,
-          name: u.name,
+          name: u.name || "Unknown User",
           imageUrl: u.imageUrl,
           role: m.role,
         };
-      }),
+      })
     );
 
-    const ids = memberDetails.map((m) =>m.id);
-    //calculating balance//
-    const totals = Object.fromEntries(ids.map((id)=>[id,0]));
-    //creating a 2d-ledger to track who owes whom
-    const ledger ={};
-    ids.forEach(a=>{
-        ledger[a] ={};
-        ids.forEach(b=>{
-            if(a != b) ledger[a][b] = 0;
-        });
+    const memberDetails = memberDetailsRaw.filter(Boolean);
+    const ids = memberDetails.map((m) => m.id);
+
+    // Calculating balance totals
+    const totals = Object.fromEntries(ids.map((id) => [id, 0]));
+
+    // Creating a 2d-ledger to track who owes whom
+    const ledger = {};
+    ids.forEach((a) => {
+      ledger[a] = {};
+      ids.forEach((b) => {
+        if (a !== b) ledger[a][b] = 0;
+      });
     });
-    //applying expenses to balances//
-    for(const exp of expenses){
-       const payer = exp.paidByUserId;
 
-       for(const split of exp.splits){
-        if(split.userId === payer || split.paid) continue;
-          const debtor= split.userId;
-          const amt = split.amount;
+    // Applying expenses to balances
+    for (const exp of expenses) {
+      const payer = exp.paidByUserId;
 
-          //update totals:increase payer's balance, decrease debtor's balance//
-          totals[payer] += amt;
-          totals[debtor] -= amt;
+      for (const split of exp.splits || []) {
+        if (split.userId === payer || split.paid) continue;
+        const debtor = split.userId;
+        const amt = split.amount || 0;
+
+        if (totals[payer] !== undefined) totals[payer] += amt;
+        if (totals[debtor] !== undefined) totals[debtor] -= amt;
+
+        if (ledger[debtor] && ledger[debtor][payer] !== undefined) {
           ledger[debtor][payer] += amt;
-       }
+        }
+      }
     }
 
+    // Applying settlements safely
+    for (const s of settlements) {
+      const payer = s.paidByUserId;
+      const receiver = s.receivedByUserId;
+      const amt = s.amount || 0;
 
-    //applying settlements//
-    for(const s of settlements){
-        totals[s.paidByUserId] += s.amount;
-        totals[s.receivedByUserId] -= s.amount;
+      if (totals[payer] !== undefined) totals[payer] += amt;
+      if (totals[receiver] !== undefined) totals[receiver] -= amt;
 
-        ledger[s.paidByUserId][s.receivedByUserId] -= s.amount;
+      if (ledger[payer] && ledger[payer][receiver] !== undefined) {
+        ledger[payer][receiver] -= amt;
+      }
     }
 
-    //format response data and creating a comprehensive balance Object for Each Member//
-    const balances = memberDetails.map((m) =>({
-        ...m,
-        totalBalance:totals[m.id],
-        owes:Object.entries(ledger[m.id])
-        .filter(([,v])=> v > 0)
-        .map(([totals,amount])=>({to,amount})),
-        ownedBy:ids
-        .filter((other)=> ledger[other][m.id] > 0)
-        .map((other)=>({from:other ,amount:ledger[other][m.id]})),
+    // Format response data
+    const balances = memberDetails.map((m) => ({
+      ...m,
+      totalBalance: totals[m.id] || 0,
+      owes: Object.entries(ledger[m.id] || {})
+        .filter(([, v]) => v > 0)
+        .map(([toUserId, amount]) => ({ to: toUserId, amount })),
+      owedBy: ids
+        .filter((other) => ledger[other] && ledger[other][m.id] > 0)
+        .map((other) => ({ from: other, amount: ledger[other][m.id] })),
     }));
 
-    const userLookUpMap = {};
-    memberDetails.forEach((member)=>{
-        userLookUpMap[member.id] = member;
+    // Create lookup map
+    const userLookupMap = {};
+    memberDetails.forEach((member) => {
+      userLookupMap[member.id] = member;
     });
 
     return {
-        //group info//
-        group:{
-            id:group._id,
-            name:group.name,
-            description:group.description,
-        },
-        memberDetails:memberDetails,
-        expenses,
-        settlements,
-        balances,
-        userLookUpMap,
-    }
-
-
+      group: {
+        id: group._id,
+        name: group.name,
+        description: group.description,
+      },
+      members: memberDetails, 
+      expenses,
+      settlements,
+      balances,
+      userLookupMap,          
+    };
   },
 });
