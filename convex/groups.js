@@ -120,64 +120,78 @@ export const getGroupExpenses = query({
 });
 
 export const getGroupOrMembers = query({
-   args:{
-     groupId:v.optional(v.id("groups")),
-   },
-   handler:async(ctx)=>{
-      const currentUser = await ctx.runQuery(internal.users.getCurrentUser);
-      //fecthing all groups where userr is a member//
-      const allGroups = await ctx.db.query("groups").collect();
-      const userGroups = allGroups.filter((group)=>
-        group.members.some((member)=>member.userId === currentUser._id)
+  args: {
+    groupId: v.optional(v.union(v.id("groups"), v.string())),
+  },
+  handler: async (ctx, args) => {
+    // 1. Get authenticated user identity
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { selectedGroup: null, groups: [] };
+    }
+
+    // 2. Fetch the user document from the database
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
       )
-      
-      if(args.groupId){
-        const selectedGroup = userGroups.find(
-          (group)=>group._id === args.groupId
-        );
-        if(!selectedGroup){
-          throw new Error("Group not Found or Your are not a member")
-        }
+      .first();
+
+    if (!currentUser) {
+      return { selectedGroup: null, groups: [] };
+    }
+
+    // 3. Fetch all groups where the current user is a member
+    const allGroups = await ctx.db.query("groups").collect();
+    const userGroups = allGroups.filter((group) =>
+      Array.isArray(group.members) &&
+      group.members.some((member) => member.userId === currentUser._id)
+    );
+
+    let selectedGroupData = null;
+
+    // 4. If groupId is provided and not an empty string, resolve member details
+    if (args.groupId && args.groupId.trim() !== "") {
+      const selectedGroup = userGroups.find(
+        (group) => group._id === args.groupId
+      );
+
+      if (selectedGroup) {
         const memberDetails = await Promise.all(
-          selectedGroup.members.map(async(member)=>{
+          (selectedGroup.members || []).map(async (member) => {
             const user = await ctx.db.get(member.userId);
-            if(!user) return null;
+            if (!user) return null;
 
             return {
-              id:user._id,
-              name:user.name,
-              email:user.email,
-              imageUrl:user.imageUrl,
+              id: user._id,
+              name: user.name,
+              email: user.email,
+              imageUrl: user.imageUrl,
               role: member.role,
-            }
+            };
           })
         );
-        const validmembers = memberDetails.filter((member)=>member !== null);
-        return {
-          selectedGroup:{
-            id:selectedGroup._id,
-            name:selectedGroup.name,
-            description:selectedGroup.description,
-            createdBy:selectedGroup.createdBy,
-            members:validmembers,
-          },
-          groups:userGroups.map((group)=>({
-            id:group._id,
-            name:group.name,
-            description:group.description,
-            memberCount:group.members.length,
-          }))
-        }
-      }else{
-        return {
-          selectedGroup:null,
-          groups:userGroups.map((group)=>({
-            id:group._id,
-            name:group.name,
-            description:group.description,
-            memberCount:group.members.length,
-          }))
-        }
+
+        selectedGroupData = {
+          id: selectedGroup._id,
+          name: selectedGroup.name,
+          description: selectedGroup.description,
+          createdBy: selectedGroup.createdBy,
+          members: memberDetails.filter(Boolean),
+        };
       }
-   }
-})
+    }
+
+    // 5. Return structured response
+    return {
+      selectedGroup: selectedGroupData,
+      groups: userGroups.map((group) => ({
+        id: group._id,
+        name: group.name,
+        description: group.description,
+        memberCount: group.members ? group.members.length : 0,
+      })),
+    };
+  },
+});
