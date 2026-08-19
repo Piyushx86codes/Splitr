@@ -122,7 +122,7 @@ export const createExpense = mutation({
     splitType: v.string(),
     splits: v.array(
       v.object({
-        userid: v.id("users"),
+        userId: v.id("users"),
         amount: v.number(),
         paid: v.boolean(),
       }),

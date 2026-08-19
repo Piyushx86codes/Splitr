@@ -35,7 +35,7 @@ const DashBoardPage = () => {
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-5xl gradient-title">DashBoard</h1>
             <Button asChild>
-              <Link href="/expense/new">
+              <Link href="/expenses/new">
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Add Expense
               </Link>
